@@ -1,0 +1,35 @@
+# Agent / tooling state
+.freebuff/
+
+# Compiled binaries
+goliath
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test and coverage output
+*.test
+*.out
+coverage.*
+profile.cov
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Dependency and build caches
+vendor/
+bin/
+dist/
+
+# Editor and OS noise
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local environment files
+.env
+.env.local
