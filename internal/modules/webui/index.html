@@ -249,6 +249,11 @@
           <button class="btn primary" type="submit">Send</button>
         </div>
         <label class="field">
+          <span>Headers <em>(JSON object, optional)</em></span>
+          <textarea id="headers" rows="3" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder='{"Authorization":"Bearer your-token"}' aria-label="Request headers"></textarea>
+          <span>Headers are sent with each request until cleared or the page is reloaded; they are not persisted.</span>
+        </label>
+        <label class="field">
           <span>Body <em>(JSON, optional &mdash; ignored for GET)</em></span>
           <textarea id="body" rows="3" spellcheck="false" placeholder='{"example": true}'></textarea>
         </label>
@@ -474,11 +479,58 @@
       path = "/" + path;
     }
     var body = byId("body").value.trim();
+    var rawHeaders = byId("headers").value.trim();
+    var headers = new Headers();
 
-    var init = { method: method, headers: { Accept: "application/json" } };
+    if (rawHeaders) {
+      var customHeaders;
+      try {
+        customHeaders = JSON.parse(rawHeaders);
+      } catch (err) {
+        renderError("Headers must be a valid JSON object.");
+        return;
+      }
+      if (!customHeaders || typeof customHeaders !== "object" || Array.isArray(customHeaders)) {
+        renderError("Headers must be a JSON object with string values.");
+        return;
+      }
+      var invalidHeader = Object.keys(customHeaders).some(function (name) {
+        return typeof customHeaders[name] !== "string";
+      });
+      if (invalidHeader) {
+        renderError("Every header value must be a string.");
+        return;
+      }
+      try {
+        headers = new Headers(customHeaders);
+      } catch (err) {
+        renderError("Invalid request headers: " + String(err));
+        return;
+      }
+    }
+
+    var target;
+    try {
+      target = new URL(path, window.location.origin);
+    } catch (err) {
+      renderError("Enter a valid request path.");
+      return;
+    }
+    if (target.origin !== window.location.origin) {
+      renderError("Requests can only be sent to this API's origin.");
+      return;
+    }
+    path = target.pathname + target.search + target.hash;
+
+    if (!headers.has("Accept")) {
+      headers.set("Accept", "application/json");
+    }
+    var init = { method: method, headers: headers };
     if (method !== "GET" && method !== "HEAD" && body) {
       init.body = body;
-      init.headers["Content-Type"] = "application/json";
+      if (!headers.has("Content-Type")) {
+        headers.set("Content-Type", "application/json");
+      }
     }
 
     var box = byId("response");

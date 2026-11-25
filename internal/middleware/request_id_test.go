@@ -64,7 +64,7 @@ func TestRequestIDReusesClientID(t *testing.T) {
 func TestRequestIDReplacesInvalidID(t *testing.T) {
 	engine := newRequestIDEngine(nil)
 
-	for _, invalid := range []string{"bad id", "id\twith\ttabs", "semi;colon"} {
+	for _, invalid := range []string{"bad id", "id\twith\ttabs", "semi;colon", "1234567890123456789012345678901234567"} {
 		req := httptest.NewRequest(http.MethodGet, "/health", nil)
 		req.Header.Set(HeaderRequestID, invalid)
 

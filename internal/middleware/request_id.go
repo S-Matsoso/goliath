@@ -15,7 +15,7 @@ import (
 // HeaderRequestID is the request/response header carrying the correlation ID.
 const HeaderRequestID = "X-Request-ID"
 
-const maxRequestIDLen = 128
+const maxRequestIDLen = 36
 
 // RequestID assigns every request a correlation ID, exposes it on the response
 // header and stores it in the request context for handlers and error responses.
