@@ -34,7 +34,16 @@ func TestIndexServesConsole(t *testing.T) {
 	}
 
 	body := rec.Body.String()
-	for _, want := range []string{"Register API Console", "/health", "request-form", "/api/endpoints", "endpoints"} {
+	for _, want := range []string{
+		"Register API Console",
+		"/health",
+		"request-form",
+		"/api/endpoints",
+		"endpoints",
+		`id="headers"`,
+		"Authorization",
+		"not persisted",
+	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("page does not contain %q", want)
 		}

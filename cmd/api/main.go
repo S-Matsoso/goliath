@@ -31,5 +31,9 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	return app.New(cfg, log).Run(ctx)
+	application, err := app.New(cfg, log)
+	if err != nil {
+		return fmt.Errorf("initialize application: %w", err)
+	}
+	return application.Run(ctx)
 }
