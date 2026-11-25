@@ -1,9 +1,13 @@
 package health
 
-import "net/http"
+import (
+	"net/http"
 
-// Routes mounts the health module's endpoints on the server's mux. It satisfies
-// server.Module without importing the server package.
+	"github.com/S-Matsoso/goliath/internal/platform/router"
+)
+
+// Routes mounts the health module's endpoints on the server's router. It
+// satisfies server.Module without importing the server package.
 type Routes struct {
 	handler *Handler
 }
@@ -14,6 +18,6 @@ func NewRoutes(handler *Handler) *Routes {
 }
 
 // Register mounts the module's endpoints.
-func (r *Routes) Register(mux *http.ServeMux) {
-	mux.Handle("GET /health", http.HandlerFunc(r.handler.Health))
+func (r *Routes) Register(rt *router.Router) {
+	rt.Handle(http.MethodGet, "/health", "Service health check", r.handler.Health)
 }

@@ -7,10 +7,11 @@ No business functionality, database or authentication is implemented yet.
 
 ## Stack
 
-- Go standard library only: `net/http` with `http.ServeMux`, `log/slog`, `testing`.
+- [Gin](https://github.com/gin-gonic/gin) (`gin-gonic/gin`) for routing and handlers.
+- Go standard library for everything else: `net/http` server lifecycle, `log/slog`, `testing`.
 - JSON request/response bodies.
 - Environment-based configuration.
-- No ORM, no database, no Docker, no external dependencies.
+- No ORM, no database, no Docker.
 
 ## Project layout
 
@@ -22,19 +23,24 @@ No business functionality, database or authentication is implemented yet.
 │   ├── config/config.go         # Env parsing, defaults, startup validation
 │   ├── server/
 │   │   ├── server.go            # http.Server lifecycle, timeouts, graceful shutdown
-│   │   └── routes.go            # Module interface, mux assembly, middleware chain
+│   │   └── routes.go            # Module interface, Gin engine assembly, middleware
 │   ├── middleware/
 │   │   ├── request_id.go        # X-Request-ID generation/propagation
 │   │   ├── logging.go           # One structured slog line per request, with timing
 │   │   └── recovery.go          # Panic → logged 500 with the standard error envelope
 │   ├── platform/
+│   │   ├── httpx/httpx.go       # JSON + error helpers, request-ID context
 │   │   ├── logger/logger.go     # slog logger construction (text dev / JSON prod)
-│   │   └── httpx/httpx.go       # JSON + error helpers, request-ID context
+│   │   └── router/router.go     # Route registry feeding the endpoint catalog
 │   └── modules/
-│       └── health/              # Reference module
-│           ├── handler.go       # HTTP translation only
-│           ├── service.go       # Business/health state, no HTTP knowledge
-│           └── routes.go        # Registers GET /health on the mux
+│       ├── health/              # Reference module
+│       │   ├── handler.go       # HTTP translation only
+│       │   ├── service.go       # Business/health state, no HTTP knowledge
+│       │   └── routes.go        # Registers GET /health on the router
+│       └── webui/               # Browser console (presentation only)
+│           ├── index.html       # Embedded single-page UI
+│           ├── handler.go       # Serves the page
+│           └── routes.go        # Registers GET /
 ├── .env.example
 ├── .gitignore
 ├── go.mod
@@ -48,11 +54,13 @@ No business functionality, database or authentication is implemented yet.
 | `cmd/api` | Process entry point. Loads config, builds the logger, runs the app, exits non-zero on fatal startup errors. |
 | `internal/app` | The only place that knows which modules exist. Constructs each module and passes it to the server. |
 | `internal/config` | Reads environment variables, applies defaults, validates values before the server starts. |
-| `internal/server` | Owns `http.Server`: timeouts, mux assembly, middleware chain, graceful shutdown. Defines the `Module` interface; never imports modules. |
-| `internal/middleware` | Reusable `func(http.Handler) http.Handler` wrappers for request IDs, logging/timing and panic recovery. |
+| `internal/server` | Owns `http.Server`: timeouts, Gin engine assembly, middleware chain, graceful shutdown. Defines the `Module` interface; never imports modules. |
+| `internal/middleware` | Reusable Gin middleware (`gin.HandlerFunc`) for request IDs, logging/timing and panic recovery. |
 | `internal/platform/logger` | Builds `*slog.Logger` from `APP_ENV` and `LOG_LEVEL`. |
 | `internal/platform/httpx` | JSON response and error envelope helpers; request-ID context accessors. |
+| `internal/platform/router` | Mounts module routes on the Gin engine while recording them, so the endpoint catalog always matches what is served. |
 | `internal/modules/health` | Example feature module: handler → service → routes. |
+| `internal/modules/webui` | Browser console served at `/`: health panel and request explorer. It calls the API over HTTP like any client, so it holds no business logic. |
 
 ### How dependencies flow
 
@@ -62,9 +70,11 @@ cmd/api  ──►  config.Load, logger.New
    ▼
 app.New(cfg, log)
    │  builds: health.NewService → health.NewHandler → health.NewRoutes
+   │          webui.NewHandler → webui.NewRoutes
    ▼
 server.New(cfg.Server, log, modules...)
-   │  NewHandler: mux ← module.Register, wrapped by RequestID → Logging → Recovery
+   │  NewHandler: gin.New() → router.New(engine) ← module.Register
+   │  catalog at GET /api/endpoints; middleware RequestID → Logging → Recovery
    ▼
 Server.Run(ctx)  →  listens, then shuts down on SIGINT/SIGTERM
 ```
@@ -113,6 +123,24 @@ Shut down cleanly with `Ctrl+C` (SIGINT) or SIGTERM.
 
 ## API
 
+### Web console
+
+Open <http://127.0.0.1:8080/> in a browser. The page is embedded in the binary
+and served by the API itself, so there is no separate frontend build or dev
+server.
+
+- **Service health** shows the `/health` result, response time and request ID,
+  with a refresh button.
+- **Available endpoints** is loaded from `GET /api/endpoints` and rendered
+  automatically, so every mounted route appears with its method and summary. A
+  **Use** button loads the endpoint into the request explorer.
+- **Request explorer** sends GET/POST/PUT/PATCH/DELETE requests to any path on
+  this API and shows the status, duration, request ID and response body.
+
+The console is plain HTML/CSS/JavaScript and calls the API over HTTP with
+same-origin `fetch`, so endpoints added by future modules work in the explorer
+without changes to the page.
+
 ### Health
 
 ```bash
@@ -122,6 +150,27 @@ curl -i http://127.0.0.1:8080/health
 ```json
 {"status":"ok","service":"register-api"}
 ```
+
+### Endpoint catalog
+
+```bash
+curl http://127.0.0.1:8080/api/endpoints
+```
+
+```json
+{
+  "endpoints": [
+    {"method": "GET", "path": "/", "summary": "Web console"},
+    {"method": "GET", "path": "/api/endpoints", "summary": "List available endpoints"},
+    {"method": "GET", "path": "/health", "summary": "Service health check"}
+  ]
+}
+```
+
+The catalog comes from the server's route registry, not a hand-written list, so
+it cannot drift from the routes modules mount. The web console renders this same
+payload. GET routes also answer HEAD requests, without appearing twice in the
+catalog.
 
 ### Error envelope
 
@@ -152,19 +201,24 @@ go vet ./...
 gofmt -l .
 ```
 
-Coverage includes the health endpoint and method handling, JSON/error helpers,
-request-ID middleware (generation, reuse, rejection of invalid IDs), panic
-recovery (including that panic details do not leak), and configuration defaults,
-overrides and validation.
+Coverage includes the health endpoint and method handling, the web console page
+and its root-only route, the route registry and endpoint catalog, JSON/error
+helpers, request-ID middleware (generation, reuse, rejection of invalid IDs),
+panic recovery (including that panic details do not leak), routing fallbacks,
+and configuration defaults, overrides and validation.
 
 ## Adding a module
 
 1. Create `internal/modules/<name>/` with `service.go`, `handler.go` and
    `routes.go`.
-2. Give `routes.go` a `Register(mux *http.ServeMux)` method (it satisfies
-   `server.Module` structurally).
-3. Construct and inject it in `app.New`, passing the route set to
-   `server.New`.
+2. Give `routes.go` a `Register(r *router.Router)` method (it satisfies
+   `server.Module` structurally) and mount each endpoint with
+   `r.Handle(method, path, summary, handler)`, where `handler` is a
+   `gin.HandlerFunc`.
+3. Construct and inject it in `app.New`, passing the route set to `server.New`.
+
+The endpoint then appears automatically in `GET /api/endpoints` and in the web
+console — no separate documentation list to update.
 
 Planned modules — Identity, Electoral, Police, Tax, Grants, Audit, Event
 synchronisation — are not implemented.

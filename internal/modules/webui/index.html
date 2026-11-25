@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Register API Console</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --border: #e3e7ed;
+    --text: #101828;
+    --muted: #667085;
+    --accent: #0f6b5c;
+    --accent-strong: #0b5548;
+    --good: #067647;
+    --good-soft: #ecfdf3;
+    --info: #175cd3;
+    --info-soft: #eff8ff;
+    --bad: #b42318;
+    --bad-soft: #fef3f2;
+    --warn: #b54708;
+    --warn-soft: #fffaeb;
+    --code-bg: #0f172a;
+    --code-text: #e2e8f0;
+    --radius: 12px;
+    --shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --surface: #151b23;
+      --border: #2a3340;
+      --text: #e6edf3;
+      --muted: #93a1b1;
+      --accent: #34d1b2;
+      --accent-strong: #6ee7cd;
+      --good: #6ce9a6;
+      --good-soft: #10261c;
+      --info: #84adff;
+      --info-soft: #0d1d33;
+      --bad: #fda29b;
+      --bad-soft: #2a1414;
+      --warn: #fec84b;
+      --warn-soft: #2a2110;
+      --code-bg: #0a0f16;
+      --code-text: #dbe4ee;
+      --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 32px 20px 56px; }
+  header { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; justify-content: space-between; margin-bottom: 28px; }
+  h1 { font-size: 22px; line-height: 1.25; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { margin: 0; color: var(--muted); font-size: 13.5px; }
+  .origin {
+    font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    border-radius: 999px;
+    padding: 5px 11px;
+    white-space: nowrap;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 20px;
+    margin-bottom: 18px;
+  }
+  .card-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  h2 { font-size: 15px; margin: 0; letter-spacing: 0.01em; }
+  .hint { color: var(--muted); font-size: 12.5px; }
+  .btn {
+    font: inherit;
+    font-size: 13px;
+    font-weight: 550;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 13px;
+    cursor: pointer;
+  }
+  .btn:hover { border-color: var(--muted); }
+  .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #ffffff; }
+  .btn.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+  .health { display: flex; gap: 14px; align-items: flex-start; }
+  .dot { flex: none; width: 11px; height: 11px; margin-top: 7px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--good); box-shadow: 0 0 0 4px var(--good-soft); }
+  .dot.bad { background: var(--bad); box-shadow: 0 0 0 4px var(--bad-soft); }
+  .dot.pending { background: var(--warn); animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.35; } }
+  @media (prefers-reduced-motion: reduce) { .dot.pending { animation: none; } }
+  .health-status { margin: 0 0 2px; font-weight: 600; }
+  .meta { margin: 0; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+  .endpoints-hint { margin: 0 0 12px; color: var(--muted); font-size: 12.5px; }
+  .endpoints { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .endpoint {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    padding: 9px 11px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--bg);
+  }
+  .method-tag {
+    font: 700 11px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    letter-spacing: 0.04em;
+    padding: 5px 7px;
+    min-width: 48px;
+    text-align: center;
+    border-radius: 5px;
+    background: var(--border);
+    color: var(--text);
+  }
+  .method-tag.get { color: var(--good); background: var(--good-soft); }
+  .method-tag.post, .method-tag.put, .method-tag.patch { color: var(--info); background: var(--info-soft); }
+  .method-tag.delete { color: var(--bad); background: var(--bad-soft); }
+  .endpoint-path { flex: 1 1 200px; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+  .endpoint-summary { color: var(--muted); font-size: 12.5px; margin-left: auto; }
+  .btn.ghost { padding: 4px 10px; font-size: 12px; }
+  .raw {
+    margin: 16px 0 0;
+    padding: 12px 14px;
+    background: var(--code-bg);
+    color: var(--code-text);
+    border-radius: 8px;
+    font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  form { display: grid; gap: 14px; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+  .field { display: grid; gap: 5px; min-width: 0; }
+  .field > span { color: var(--muted); font-size: 12px; font-weight: 550; }
+  .field em { font-style: normal; font-weight: 400; }
+  .field.method { flex: 0 0 122px; }
+  .field.path { flex: 1 1 220px; }
+  select, input, textarea {
+    font: 13.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 10px;
+    width: 100%;
+  }
+  select { font-family: inherit; }
+  textarea { resize: vertical; min-height: 64px; }
+  select:focus, input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .response { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 16px; }
+  .response.empty { color: var(--muted); font-size: 13px; }
+  .response-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .pill {
+    font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    padding: 5px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+  }
+  .pill.good { color: var(--good); background: var(--good-soft); border-color: transparent; }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
+  .pill.bad { color: var(--bad); background: var(--bad-soft); border-color: transparent; }
+  .chip {
+    font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 7px;
+    overflow-wrap: anywhere;
+  }
+  pre.body { margin: 0; }
+  footer { color: var(--muted); font-size: 12px; margin-top: 26px; text-align: center; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Register API Console</h1>
+      <p class="sub">National Population Register &middot; API foundation</p>
+    </div>
+    <span class="origin" id="origin">same origin</span>
+  </header>
+
+  <main>
+    <section class="card" aria-labelledby="health-title">
+      <div class="card-head">
+        <h2 id="health-title">Service health</h2>
+        <button class="btn" id="health-refresh" type="button">Check again</button>
+      </div>
+      <div class="health" role="status" aria-live="polite">
+        <span class="dot pending" id="health-dot" aria-hidden="true"></span>
+        <div>
+          <p class="health-status" id="health-status">Checking&hellip;</p>
+          <p class="meta" id="health-meta">GET /health</p>
+        </div>
+      </div>
+      <pre class="raw" id="health-raw" hidden></pre>
+    </section>
+
+    <section class="card" aria-labelledby="endpoints-title">
+      <div class="card-head">
+        <h2 id="endpoints-title">Available endpoints</h2>
+        <button class="btn" id="endpoints-refresh" type="button">Reload</button>
+      </div>
+      <p class="endpoints-hint" id="endpoints-hint">Loading from GET /api/endpoints&hellip;</p>
+      <ul class="endpoints" id="endpoints" aria-live="polite"></ul>
+    </section>
+
+    <section class="card" aria-labelledby="request-title">
+      <div class="card-head">
+        <h2 id="request-title">Request explorer</h2>
+        <span class="hint">Send any request to this API</span>
+      </div>
+      <form id="request-form">
+        <div class="row">
+          <label class="field method">
+            <span>Method</span>
+            <select id="method">
+              <option>GET</option>
+              <option>POST</option>
+              <option>PUT</option>
+              <option>PATCH</option>
+              <option>DELETE</option>
+              <option>HEAD</option>
+              <option>OPTIONS</option>
+            </select>
+          </label>
+          <label class="field path">
+            <span>Path</span>
+            <input id="path" value="/health" spellcheck="false" autocomplete="off" aria-label="Request path">
+          </label>
+          <button class="btn primary" type="submit">Send</button>
+        </div>
+        <label class="field">
+          <span>Body <em>(JSON, optional &mdash; ignored for GET)</em></span>
+          <textarea id="body" rows="3" spellcheck="false" placeholder='{"example": true}'></textarea>
+        </label>
+      </form>
+      <div class="response empty" id="response">Send a request to see the response.</div>
+    </section>
+  </main>
+
+  <footer>The endpoint list is generated from the server's route registry, so it stays in sync with mounted modules.</footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var byId = function (id) { return document.getElementById(id); };
+
+  function safeJSON(text) {
+    try {
+      return JSON.parse(text);
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function prettyBody(text, contentType) {
+    if (!text) {
+      return "(empty body)";
+    }
+    if ((contentType || "").indexOf("json") !== -1) {
+      var parsed = safeJSON(text);
+      if (parsed !== null) {
+        return JSON.stringify(parsed, null, 2);
+      }
+    }
+    return text;
+  }
+
+  function request(path, init) {
+    var started = performance.now();
+    return fetch(path, init).then(function (res) {
+      return res.text().then(function (text) {
+        return { res: res, text: text, ms: Math.round(performance.now() - started) };
+      });
+    });
+  }
+
+  byId("origin").textContent = window.location.origin;
+
+  function checkHealth() {
+    var dot = byId("health-dot");
+    var status = byId("health-status");
+    var meta = byId("health-meta");
+    var raw = byId("health-raw");
+
+    dot.className = "dot pending";
+    status.textContent = "Checking\u2026";
+    meta.textContent = "GET /health";
+    raw.hidden = true;
+
+    request("/health", { headers: { Accept: "application/json" } })
+      .then(function (out) {
+        var data = safeJSON(out.text);
+        var healthy = out.res.ok && data && data.status === "ok";
+        dot.className = "dot " + (healthy ? "ok" : "bad");
+        status.textContent = healthy ? "Operational" : "Unhealthy (" + out.res.status + ")";
+
+        var parts = [];
+        if (data && data.service) { parts.push(data.service); }
+        parts.push(out.res.status + " " + out.res.statusText);
+        parts.push(out.ms + " ms");
+        var requestId = out.res.headers.get("X-Request-ID");
+        if (requestId) { parts.push("request " + requestId); }
+        meta.textContent = parts.join(" \u00b7 ");
+
+        raw.textContent = prettyBody(out.text, out.res.headers.get("Content-Type"));
+        raw.hidden = false;
+      })
+      .catch(function (err) {
+        dot.className = "dot bad";
+        status.textContent = "Unreachable";
+        meta.textContent = String(err);
+      });
+  }
+
+  byId("health-refresh").addEventListener("click", checkHealth);
+
+  function endpointItem(endpoint) {
+    var item = document.createElement("li");
+    item.className = "endpoint";
+
+    var method = document.createElement("span");
+    method.className = "method-tag " + String(endpoint.method || "get").toLowerCase();
+    method.textContent = endpoint.method || "?";
+    item.appendChild(method);
+
+    var path = document.createElement("code");
+    path.className = "endpoint-path";
+    path.textContent = endpoint.path || "/";
+    item.appendChild(path);
+
+    var summary = document.createElement("span");
+    summary.className = "endpoint-summary";
+    summary.textContent = endpoint.summary || "";
+    item.appendChild(summary);
+
+    var use = document.createElement("button");
+    use.type = "button";
+    use.className = "btn ghost";
+    use.textContent = "Use";
+    use.title = "Fill the request explorer with this endpoint";
+    use.addEventListener("click", function () {
+      var select = byId("method");
+      var known = Array.prototype.some.call(select.options, function (option) {
+        return option.value === endpoint.method;
+      });
+      if (known) {
+        select.value = endpoint.method;
+      }
+      byId("path").value = endpoint.path || "/";
+      byId("path").focus();
+      byId("request-title").scrollIntoView({ block: "start" });
+      byId("response").className = "response empty";
+      byId("response").textContent = "Ready to send " + (endpoint.method || "GET") + " " + (endpoint.path || "/") + ".";
+    });
+    item.appendChild(use);
+
+    return item;
+  }
+
+  function loadEndpoints() {
+    var list = byId("endpoints");
+    var hint = byId("endpoints-hint");
+
+    list.textContent = "";
+    hint.textContent = "Loading from GET /api/endpoints\u2026";
+
+    request("/api/endpoints", { headers: { Accept: "application/json" } })
+      .then(function (out) {
+        var data = safeJSON(out.text);
+        var endpoints = data && Array.isArray(data.endpoints) ? data.endpoints : [];
+
+        if (!out.res.ok) {
+          hint.textContent = "Could not load endpoints (" + out.res.status + " " + out.res.statusText + ").";
+          return;
+        }
+        if (endpoints.length === 0) {
+          hint.textContent = "No endpoints are registered.";
+          return;
+        }
+
+        hint.textContent = endpoints.length + (endpoints.length === 1 ? " endpoint" : " endpoints") + " registered on this API.";
+        endpoints.forEach(function (endpoint) {
+          list.appendChild(endpointItem(endpoint));
+        });
+      })
+      .catch(function (err) {
+        hint.textContent = "Could not load endpoints: " + String(err);
+      });
+  }
+
+  byId("endpoints-refresh").addEventListener("click", loadEndpoints);
+
+  function chip(label, value) {
+    var el = document.createElement("span");
+    el.className = "chip";
+    el.textContent = label + ": " + value;
+    return el;
+  }
+
+  function renderResponse(out) {
+    var box = byId("response");
+    box.className = "response";
+    box.textContent = "";
+
+    var head = document.createElement("div");
+    head.className = "response-head";
+
+    var status = document.createElement("span");
+    status.className = "pill " + (out.res.ok ? "good" : (out.res.status >= 500 ? "bad" : "warn"));
+    status.textContent = out.res.status + " " + out.res.statusText;
+    head.appendChild(status);
+    head.appendChild(chip("time", out.ms + " ms"));
+
+    var requestId = out.res.headers.get("X-Request-ID");
+    if (requestId) {
+      head.appendChild(chip("request", requestId));
+    }
+
+    box.appendChild(head);
+
+    var pre = document.createElement("pre");
+    pre.className = "raw body";
+    pre.textContent = prettyBody(out.text, out.res.headers.get("Content-Type"));
+    box.appendChild(pre);
+  }
+
+  function renderError(message) {
+    var box = byId("response");
+    box.className = "response";
+    box.textContent = "";
+
+    var head = document.createElement("div");
+    head.className = "response-head";
+    var pill = document.createElement("span");
+    pill.className = "pill bad";
+    pill.textContent = "Request failed";
+    head.appendChild(pill);
+    box.appendChild(head);
+
+    var pre = document.createElement("pre");
+    pre.className = "raw body";
+    pre.textContent = message;
+    box.appendChild(pre);
+  }
+
+  byId("request-form").addEventListener("submit", function (event) {
+    event.preventDefault();
+
+    var method = byId("method").value;
+    var path = byId("path").value.trim() || "/";
+    if (path.charAt(0) !== "/") {
+      path = "/" + path;
+    }
+    var body = byId("body").value.trim();
+
+    var init = { method: method, headers: { Accept: "application/json" } };
+    if (method !== "GET" && method !== "HEAD" && body) {
+      init.body = body;
+      init.headers["Content-Type"] = "application/json";
+    }
+
+    var box = byId("response");
+    box.className = "response empty";
+    box.textContent = "Sending " + method + " " + path + "\u2026";
+
+    request(path, init).then(renderResponse).catch(function (err) {
+      renderError(String(err));
+    });
+  });
+
+  checkHealth();
+  loadEndpoints();
+})();
+</script>
+</body>
+</html>

@@ -9,22 +9,26 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/S-Matsoso/goliath/internal/platform/httpx"
 )
 
 func TestRecoveryConvertsPanicTo500(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	panicking := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.Use(RequestID(), Recovery(log))
+	engine.GET("/panic", func(c *gin.Context) {
 		panic("boom: secret internal detail")
 	})
-	handler := RequestID(Recovery(log)(panicking))
 
 	req := httptest.NewRequest(http.MethodGet, "/panic", nil)
 	req.Header.Set(HeaderRequestID, "panic-test")
 
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
+	engine.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
@@ -56,12 +60,16 @@ func TestRecoveryConvertsPanicTo500(t *testing.T) {
 
 func TestRecoveryPassesThroughNormalRequests(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	handler := Recovery(log)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	}))
+
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.Use(Recovery(log))
+	engine.GET("/ok", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
 
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ok", nil))
+	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ok", nil))
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
