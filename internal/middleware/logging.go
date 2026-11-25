@@ -2,59 +2,28 @@ package middleware
 
 import (
 	"log/slog"
-	"net/http"
 	"time"
+
+	"github.com/gin-gonic/gin"
 
 	"github.com/S-Matsoso/goliath/internal/platform/httpx"
 )
 
 // Logging logs one structured line per request, including status and duration.
-// It must wrap handlers that write through its recorder, so install it outside
-// Recovery to capture panic responses too.
-func Logging(log *slog.Logger) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			start := time.Now()
-			rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+// Install it outside Recovery so panic responses are recorded too.
+func Logging(log *slog.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
 
-			next.ServeHTTP(rec, r)
+		c.Next()
 
-			log.Info("http request",
-				"method", r.Method,
-				"path", r.URL.Path,
-				"status", rec.status,
-				"duration", time.Since(start),
-				"request_id", httpx.RequestID(r.Context()),
-				"remote_addr", r.RemoteAddr,
-			)
-		})
+		log.Info("http request",
+			"method", c.Request.Method,
+			"path", c.Request.URL.Path,
+			"status", c.Writer.Status(),
+			"duration", time.Since(start),
+			"request_id", httpx.RequestID(c.Request.Context()),
+			"remote_addr", c.Request.RemoteAddr,
+		)
 	}
-}
-
-// statusRecorder captures the response status for logging.
-type statusRecorder struct {
-	http.ResponseWriter
-	status      int
-	wroteHeader bool
-}
-
-func (r *statusRecorder) WriteHeader(status int) {
-	if r.wroteHeader {
-		return
-	}
-	r.status = status
-	r.wroteHeader = true
-	r.ResponseWriter.WriteHeader(status)
-}
-
-func (r *statusRecorder) Write(b []byte) (int, error) {
-	if !r.wroteHeader {
-		r.WriteHeader(http.StatusOK)
-	}
-	return r.ResponseWriter.Write(b)
-}
-
-// Unwrap lets http.ResponseController reach the underlying writer.
-func (r *statusRecorder) Unwrap() http.ResponseWriter {
-	return r.ResponseWriter
 }

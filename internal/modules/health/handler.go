@@ -3,11 +3,11 @@ package health
 import (
 	"net/http"
 
-	"github.com/S-Matsoso/goliath/internal/platform/httpx"
+	"github.com/gin-gonic/gin"
 )
 
 // Handler translates HTTP requests into service calls. It contains no business
-// logic and delegates all response writing to httpx.
+// logic.
 type Handler struct {
 	service *Service
 }
@@ -18,6 +18,6 @@ func NewHandler(service *Service) *Handler {
 }
 
 // Health serves GET /health.
-func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
-	httpx.JSON(w, http.StatusOK, h.service.Status())
+func (h *Handler) Health(c *gin.Context) {
+	c.JSON(http.StatusOK, h.service.Status())
 }

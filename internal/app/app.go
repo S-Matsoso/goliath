@@ -8,6 +8,7 @@ import (
 
 	"github.com/S-Matsoso/goliath/internal/config"
 	"github.com/S-Matsoso/goliath/internal/modules/health"
+	"github.com/S-Matsoso/goliath/internal/modules/webui"
 	"github.com/S-Matsoso/goliath/internal/server"
 )
 
@@ -25,7 +26,9 @@ func New(cfg config.Config, log *slog.Logger) *App {
 	healthHandler := health.NewHandler(healthService)
 	healthRoutes := health.NewRoutes(healthHandler)
 
-	srv := server.New(cfg.Server, log, healthRoutes)
+	webRoutes := webui.NewRoutes(webui.NewHandler())
+
+	srv := server.New(cfg.Server, log, healthRoutes, webRoutes)
 
 	return &App{cfg: cfg, log: log, srv: srv}
 }
