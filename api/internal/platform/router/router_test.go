@@ -119,3 +119,22 @@ func TestPathParametersAreRecorded(t *testing.T) {
 		t.Fatalf("path = %q, want %q", got, "/citizens/:id")
 	}
 }
+
+func TestAuthCoverageRequiresProtectedAPIHandlers(t *testing.T) {
+	routes := New(newEngine())
+	routes.Handle(http.MethodGet, "/healthz", "Health", func(c *gin.Context) {})
+	routes.HandleProtected(http.MethodPost, "/v1/identity/persons", "Register",
+		"identity", "supervisor",
+		func(c *gin.Context) { c.Next() },
+		func(c *gin.Context) {},
+	)
+	if err := routes.ValidateAuthCoverage(); err != nil {
+		t.Fatalf("protected routes rejected: %v", err)
+	}
+
+	unprotected := New(newEngine())
+	unprotected.Handle(http.MethodGet, "/v1/identity/persons", "List", func(c *gin.Context) {})
+	if err := unprotected.ValidateAuthCoverage(); err == nil {
+		t.Fatal("unprotected department route passed the self-test")
+	}
+}

@@ -5,6 +5,7 @@ package server
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -33,6 +34,15 @@ func NewHandler(log *slog.Logger, modules ...Module) http.Handler {
 
 // NewHandlerWithMetrics adds process request metrics to the standard middleware chain.
 func NewHandlerWithMetrics(log *slog.Logger, collector *metrics.Collector, modules ...Module) http.Handler {
+	handler, _ := buildHandler(log, collector, nil, false, modules...)
+	return handler
+}
+
+func NewSecureHandlerWithMetrics(log *slog.Logger, collector *metrics.Collector, static http.Handler, modules ...Module) (http.Handler, error) {
+	return buildHandler(log, collector, static, true, modules...)
+}
+
+func buildHandler(log *slog.Logger, collector *metrics.Collector, static http.Handler, checkAuth bool, modules ...Module) (http.Handler, error) {
 	// Request logging and recovery come from this project's middleware, so
 	// Gin's debug output would only duplicate noise.
 	gin.SetMode(gin.ReleaseMode)
@@ -57,8 +67,17 @@ func NewHandlerWithMetrics(log *slog.Logger, collector *metrics.Collector, modul
 	routes.Handle(http.MethodGet, "/api/endpoints", "List available endpoints", func(c *gin.Context) {
 		c.JSON(http.StatusOK, endpointCatalog{Endpoints: routes.Routes()})
 	})
+	if checkAuth {
+		if err := routes.ValidateAuthCoverage(); err != nil {
+			return nil, err
+		}
+	}
 
 	engine.NoRoute(func(c *gin.Context) {
+		if static != nil && !isAPIPath(c.Request.URL.Path) {
+			static.ServeHTTP(c.Writer, c.Request)
+			return
+		}
 		httpx.Error(c.Writer, c.Request, http.StatusNotFound, httpx.CodeNotFound, "Resource not found")
 	})
 
@@ -67,5 +86,14 @@ func NewHandlerWithMetrics(log *slog.Logger, collector *metrics.Collector, modul
 		httpx.Error(c.Writer, c.Request, http.StatusMethodNotAllowed, httpx.CodeMethodNotAllowed, "Method not allowed")
 	})
 
-	return engine
+	return engine, nil
+}
+
+func isAPIPath(path string) bool {
+	for _, prefix := range []string{"/v1", "/auth", "/admin", "/healthz", "/api"} {
+		if path == prefix || strings.HasPrefix(path, prefix+"/") {
+			return true
+		}
+	}
+	return false
 }

@@ -4,6 +4,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -32,6 +33,14 @@ const (
 	EnvDBPassword             = "DB_PASSWORD"
 	EnvDBName                 = "DB_NAME"
 	EnvDBCharset              = "DB_CHARSET"
+	EnvDBDSNIdentity          = "DB_DSN_IDENTITY"
+	EnvDBDSNHealth            = "DB_DSN_HEALTH"
+	EnvDBDSNElectoral         = "DB_DSN_ELECTORAL"
+	EnvDBDSNGrants            = "DB_DSN_GRANTS"
+	EnvDBDSNPolice            = "DB_DSN_POLICE"
+	EnvDBDSNAudit             = "DB_DSN_AUDIT"
+	EnvDBDSNAuthz             = "DB_DSN_AUTHZ"
+	EnvDBDSNMigrate           = "DB_DSN_MIGRATE"
 	EnvNodeID                 = "NODE_ID"
 	EnvBootstrapAdminUsername = "BOOTSTRAP_ADMIN_USERNAME"
 	EnvBootstrapAdminPassword = "BOOTSTRAP_ADMIN_PASSWORD"
@@ -40,6 +49,13 @@ const (
 	EnvVaultTransitMount      = "VAULT_TRANSIT_MOUNT"
 	EnvVaultNIDEncryptionKey  = "VAULT_NID_ENCRYPTION_KEY"
 	EnvVaultNIDHMACKey        = "VAULT_NID_HMAC_KEY"
+	EnvOIDCIssuer             = "OIDC_ISSUER"
+	EnvOIDCAudience           = "OIDC_AUDIENCE"
+	EnvOIDCJWKSURL            = "OIDC_JWKS_URL"
+	EnvTLSCert                = "TLS_CERT"
+	EnvTLSKey                 = "TLS_KEY"
+	EnvTLSClientCA            = "TLS_CLIENT_CA"
+	EnvDevHeaderAuth          = "DEV_HEADER_AUTH"
 )
 
 // Development defaults used when an environment variable is unset or empty.
@@ -65,9 +81,15 @@ type Config struct {
 	LogLevel       slog.Level
 	Server         Server
 	Database       Database
+	DepartmentDSNs map[string]string
+	AuditDSN       string
+	AuthzDSN       string
+	MigrateDSN     string
 	NodeID         string
 	Vault          Vault
 	BootstrapAdmin BootstrapAdmin
+	OIDC           OIDC
+	DevHeaderAuth  bool
 }
 
 // Server groups the HTTP server settings.
@@ -78,6 +100,15 @@ type Server struct {
 	WriteTimeout    time.Duration
 	IdleTimeout     time.Duration
 	ShutdownTimeout time.Duration
+	TLSCert         string
+	TLSKey          string
+	TLSClientCA     string
+}
+
+type OIDC struct {
+	Issuer   string
+	Audience string
+	JWKSURL  string
 }
 
 // Database groups the MySQL connection settings.
@@ -152,10 +183,15 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	appEnv := envString(EnvAppEnv, DefaultAppEnv)
+	devHeaderAuth, err := envBool(EnvDevHeaderAuth, appEnv == "development")
+	if err != nil {
+		return Config{}, err
+	}
 
 	cfg := Config{
 		AppName:  envString(EnvAppName, DefaultAppName),
-		AppEnv:   envString(EnvAppEnv, DefaultAppEnv),
+		AppEnv:   appEnv,
 		LogLevel: level,
 		Server: Server{
 			Host:            envString(EnvServerHost, DefaultServerHost),
@@ -164,6 +200,9 @@ func Load() (Config, error) {
 			WriteTimeout:    writeTimeout,
 			IdleTimeout:     idleTimeout,
 			ShutdownTimeout: shutdownTimeout,
+			TLSCert:         envString(EnvTLSCert, ""),
+			TLSKey:          envString(EnvTLSKey, ""),
+			TLSClientCA:     envString(EnvTLSClientCA, ""),
 		},
 		Database: Database{
 			Host:     envString(EnvDBHost, DefaultDBHost),
@@ -173,7 +212,17 @@ func Load() (Config, error) {
 			Name:     envString(EnvDBName, ""),
 			Charset:  envString(EnvDBCharset, DefaultDBCharset),
 		},
-		NodeID: envString(EnvNodeID, ""),
+		DepartmentDSNs: map[string]string{
+			"identity":  envString(EnvDBDSNIdentity, ""),
+			"health":    envString(EnvDBDSNHealth, ""),
+			"electoral": envString(EnvDBDSNElectoral, ""),
+			"grants":    envString(EnvDBDSNGrants, ""),
+			"police":    envString(EnvDBDSNPolice, ""),
+		},
+		AuditDSN:   envString(EnvDBDSNAudit, ""),
+		AuthzDSN:   envString(EnvDBDSNAuthz, ""),
+		MigrateDSN: envString(EnvDBDSNMigrate, ""),
+		NodeID:     envString(EnvNodeID, ""),
 		Vault: Vault{
 			Address:          envString(EnvVaultAddr, ""),
 			Token:            envString(EnvVaultToken, ""),
@@ -185,6 +234,12 @@ func Load() (Config, error) {
 			Username: envString(EnvBootstrapAdminUsername, ""),
 			Password: envSecret(EnvBootstrapAdminPassword),
 		},
+		OIDC: OIDC{
+			Issuer:   envString(EnvOIDCIssuer, ""),
+			Audience: envString(EnvOIDCAudience, ""),
+			JWKSURL:  envString(EnvOIDCJWKSURL, ""),
+		},
+		DevHeaderAuth: devHeaderAuth,
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -195,6 +250,9 @@ func Load() (Config, error) {
 
 func loadEnvFile(path string) error {
 	if err := godotenv.Load(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
 		return fmt.Errorf("load environment file %q: %w", path, err)
 	}
 	return nil
@@ -211,24 +269,38 @@ func (c Config) Validate() error {
 	if c.Server.Port < 1 || c.Server.Port > 65535 {
 		return fmt.Errorf("%s must be between 1 and 65535, got %d", EnvServerPort, c.Server.Port)
 	}
-	host := strings.Trim(c.Server.Host, "[]")
-	if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
-		return fmt.Errorf("%s must be loopback until HTTPS and client-certificate support are configured", EnvServerHost)
-	}
-	if strings.TrimSpace(c.Database.Host) == "" {
-		return fmt.Errorf("%s must not be empty", EnvDBHost)
-	}
 	if c.Database.Port < 1 || c.Database.Port > 65535 {
 		return fmt.Errorf("%s must be between 1 and 65535, got %d", EnvDBPort, c.Database.Port)
 	}
-	if strings.TrimSpace(c.Database.User) == "" {
-		return fmt.Errorf("%s must not be empty", EnvDBUser)
+	for _, department := range []string{"identity", "health", "electoral", "grants", "police"} {
+		if strings.TrimSpace(c.DepartmentDSNs[department]) == "" {
+			return fmt.Errorf("%s is required", "DB_DSN_"+strings.ToUpper(department))
+		}
 	}
-	if strings.TrimSpace(c.Database.Name) == "" {
-		return fmt.Errorf("%s must not be empty", EnvDBName)
+	if strings.TrimSpace(c.AuditDSN) == "" {
+		return fmt.Errorf("%s is required", EnvDBDSNAudit)
 	}
-	if strings.TrimSpace(c.Database.Charset) == "" {
-		return fmt.Errorf("%s must not be empty", EnvDBCharset)
+	if strings.TrimSpace(c.AuthzDSN) == "" {
+		return fmt.Errorf("%s is required", EnvDBDSNAuthz)
+	}
+	if (c.Server.TLSCert == "") != (c.Server.TLSKey == "") {
+		return fmt.Errorf("%s and %s must be configured together", EnvTLSCert, EnvTLSKey)
+	}
+	host := strings.Trim(c.Server.Host, "[]")
+	if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) &&
+		(c.Server.TLSCert == "" || c.Server.TLSClientCA == "") {
+		return fmt.Errorf("non-loopback binds require TLS_CERT, TLS_KEY and TLS_CLIENT_CA")
+	}
+	if c.AppEnv != "development" {
+		if c.OIDC.Issuer == "" || c.OIDC.Audience == "" {
+			return fmt.Errorf("%s and %s are required outside development", EnvOIDCIssuer, EnvOIDCAudience)
+		}
+		if c.Server.TLSCert == "" || c.Server.TLSClientCA == "" {
+			return fmt.Errorf("TLS_CERT, TLS_KEY and TLS_CLIENT_CA are required outside development")
+		}
+	}
+	if c.DevHeaderAuth && c.AppEnv != "development" {
+		return fmt.Errorf("%s is only allowed in development", EnvDevHeaderAuth)
 	}
 	if strings.TrimSpace(c.NodeID) == "" {
 		return fmt.Errorf("%s must not be empty", EnvNodeID)
@@ -306,6 +378,18 @@ func envDuration(key string, fallback time.Duration) (time.Duration, error) {
 		return 0, fmt.Errorf("%s must be a duration such as \"10s\", got %q", key, raw)
 	}
 	return v, nil
+}
+
+func envBool(key string, fallback bool) (bool, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false, fmt.Errorf("%s must be true or false", key)
+	}
+	return value, nil
 }
 
 func envLevel(key string, fallback slog.Level) (slog.Level, error) {

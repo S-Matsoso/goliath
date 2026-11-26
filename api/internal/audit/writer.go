@@ -61,9 +61,47 @@ func (w *Writer) Write(ctx context.Context, event Event) error {
 
 // InTransaction atomically commits an operation with its audit event.
 func (w *Writer) InTransaction(ctx context.Context, event Event, operation func(*gorm.DB) error) error {
+	return w.InTransactionOn(ctx, w.database, event, operation)
+}
+
+func (w *Writer) InTransactionOn(ctx context.Context, database *gorm.DB, event Event, operation func(*gorm.DB) error) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
+	row := w.newRow(event)
+	err := database.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if operation != nil {
+			if err := operation(tx); err != nil {
+				return err
+			}
+		}
+		return tx.Create(&row).Error
+	})
+	if err != nil {
+		return fmt.Errorf("append audit event: %w", err)
+	}
+	w.seq = row.Seq
+	w.previous = append(w.previous[:0], row.RowHash...)
+	return nil
+}
+
+func (w *Writer) WithPreparedEvent(ctx context.Context, event Event, operation func(db.AuditLog) error) error {
+	if operation == nil {
+		return errors.New("audited operation callback is required")
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	row := w.newRow(event)
+	if err := operation(row); err != nil {
+		return fmt.Errorf("commit audited operation: %w", err)
+	}
+	w.seq = row.Seq
+	w.previous = append(w.previous[:0], row.RowHash...)
+	return nil
+}
+
+func (w *Writer) newRow(event Event) db.AuditLog {
 	row := db.AuditLog{
 		ChainID:      w.chainID,
 		Seq:          w.seq + 1,
@@ -78,20 +116,7 @@ func (w *Writer) InTransaction(ctx context.Context, event Event, operation func(
 		PreviousHash: append([]byte(nil), w.previous...),
 	}
 	row.RowHash = hash(row)
-	err := w.database.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if operation != nil {
-			if err := operation(tx); err != nil {
-				return err
-			}
-		}
-		return tx.Create(&row).Error
-	})
-	if err != nil {
-		return fmt.Errorf("append audit event: %w", err)
-	}
-	w.seq = row.Seq
-	w.previous = append(w.previous[:0], row.RowHash...)
-	return nil
+	return row
 }
 
 func hash(row db.AuditLog) []byte {

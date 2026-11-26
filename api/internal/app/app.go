@@ -1,5 +1,5 @@
-// Package app wires configuration, logging, modules and the HTTP server
-// together. It is the only package that knows which modules exist.
+// Package app wires configuration, department-scoped databases, handlers and
+// the HTTP server together.
 package app
 
 import (
@@ -13,45 +13,39 @@ import (
 	"github.com/S-Matsoso/goliath/internal/config"
 	"github.com/S-Matsoso/goliath/internal/crypto"
 	"github.com/S-Matsoso/goliath/internal/db"
+	"github.com/S-Matsoso/goliath/internal/dept/electoral"
+	"github.com/S-Matsoso/goliath/internal/dept/grants"
+	"github.com/S-Matsoso/goliath/internal/dept/health"
+	"github.com/S-Matsoso/goliath/internal/dept/identity"
+	"github.com/S-Matsoso/goliath/internal/dept/police"
 	"github.com/S-Matsoso/goliath/internal/metrics"
-	"github.com/S-Matsoso/goliath/internal/modules/admin"
-	"github.com/S-Matsoso/goliath/internal/modules/health"
-	"github.com/S-Matsoso/goliath/internal/modules/identity"
-	"github.com/S-Matsoso/goliath/internal/modules/registry"
+	"github.com/S-Matsoso/goliath/internal/platform/auditlog"
+	"github.com/S-Matsoso/goliath/internal/platform/router"
+	"github.com/S-Matsoso/goliath/internal/platform/system"
 	"github.com/S-Matsoso/goliath/internal/server"
-	"gorm.io/gorm"
+	"github.com/S-Matsoso/goliath/internal/web"
 )
 
-// App owns the constructed application graph.
 type App struct {
-	cfg      config.Config
-	log      *slog.Logger
-	srv      *server.Server
-	database *gorm.DB
+	cfg   config.Config
+	log   *slog.Logger
+	srv   *server.Server
+	pools *db.Pools
 }
 
-// New builds the application: dependencies are constructed here and injected
-// into the components that need them. Database schema migration completes
-// before the HTTP server is constructed.
 func New(cfg config.Config, log *slog.Logger) (*App, error) {
-	database, err := db.Open(cfg.Database)
+	pools, err := db.OpenPools(cfg.DepartmentDSNs, cfg.AuditDSN, cfg.AuthzDSN)
 	if err != nil {
-		return nil, fmt.Errorf("initialize database: %w", err)
-	}
-	if err := db.AutoMigrate(database); err != nil {
-		if closeErr := db.Close(database); closeErr != nil {
-			return nil, errors.Join(err, fmt.Errorf("close database after migration failure: %w", closeErr))
-		}
-		return nil, err
+		return nil, fmt.Errorf("initialize department database pools: %w", err)
 	}
 	closeOnError := func(err error) (*App, error) {
-		if closeErr := db.Close(database); closeErr != nil {
-			return nil, errors.Join(err, fmt.Errorf("close database after startup failure: %w", closeErr))
+		if closeErr := pools.Close(); closeErr != nil {
+			return nil, errors.Join(err, fmt.Errorf("close database pools after startup failure: %w", closeErr))
 		}
 		return nil, err
 	}
 
-	auditWriter, err := audit.New(context.Background(), database, cfg.NodeID)
+	auditWriter, err := audit.New(context.Background(), pools.Audit, cfg.NodeID)
 	if err != nil {
 		return closeOnError(fmt.Errorf("initialize audit writer: %w", err))
 	}
@@ -59,39 +53,78 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	if err != nil {
 		return closeOnError(fmt.Errorf("initialize Vault Transit client: %w", err))
 	}
-	if err := auth.BootstrapAdmin(context.Background(), database, cfg.BootstrapAdmin.Username, cfg.BootstrapAdmin.Password); err != nil {
-		return closeOnError(fmt.Errorf("initialize administrator account: %w", err))
+	authenticator, err := auth.NewOIDCAuthenticator(cfg.OIDC, cfg.DevHeaderAuth, pools.Authz, auditWriter)
+	if err != nil {
+		return closeOnError(fmt.Errorf("initialize OIDC authentication: %w", err))
 	}
-	authenticator := auth.New(database, auditWriter)
 
-	healthService := health.NewService(cfg.AppName, database)
-	healthHandler := health.NewHandler(healthService)
-	healthRoutes := health.NewRoutes(healthHandler)
-
-	collector := metrics.New()
-	adminRoutes := admin.NewHandler(database, authenticator, auditWriter, collector, cfg.AppName)
-	identityRoutes := identity.NewHandler(
-		database,
-		authenticator,
-		transit,
-		auditWriter,
-		cfg.Vault.NIDEncryptionKey,
-		cfg.Vault.NIDHMACKey,
+	identityRoutes, err := identity.NewHandler(
+		pools, authenticator, transit, auditWriter,
+		cfg.Vault.NIDEncryptionKey, cfg.Vault.NIDHMACKey,
 	)
-	registryRoutes := registry.NewHandler(database, authenticator, transit, auditWriter, cfg.Vault.NIDHMACKey)
+	if err != nil {
+		return closeOnError(fmt.Errorf("initialize identity module: %w", err))
+	}
+	healthRoutes, err := health.NewHandler(
+		pools, authenticator, transit, auditWriter,
+		cfg.Vault.NIDEncryptionKey, cfg.Vault.NIDHMACKey,
+	)
+	if err != nil {
+		return closeOnError(fmt.Errorf("initialize health module: %w", err))
+	}
+	electoralRoutes, err := electoral.NewHandler(
+		pools, authenticator, transit, auditWriter, cfg.Vault.NIDHMACKey,
+	)
+	if err != nil {
+		return closeOnError(fmt.Errorf("initialize electoral module: %w", err))
+	}
+	grantsRoutes, err := grants.NewHandler(
+		pools, authenticator, transit, auditWriter, cfg.Vault.NIDHMACKey,
+	)
+	if err != nil {
+		return closeOnError(fmt.Errorf("initialize grants module: %w", err))
+	}
+	policeRoutes, err := police.NewHandler(
+		pools, authenticator, transit, auditWriter,
+		cfg.Vault.NIDEncryptionKey, cfg.Vault.NIDHMACKey,
+	)
+	if err != nil {
+		return closeOnError(fmt.Errorf("initialize police module: %w", err))
+	}
 
-	srv := server.NewWithMetrics(cfg.Server, log, collector, healthRoutes, adminRoutes, identityRoutes, registryRoutes)
+	static, err := web.Handler()
+	if err != nil {
+		return closeOnError(fmt.Errorf("initialize embedded frontend: %w", err))
+	}
+	collector := metrics.New()
+	profileRoutes := profileRoutes{authenticator: authenticator}
+	auditRoutes := auditlog.NewHandler(pools, authenticator)
+	systemRoutes := system.NewHandler(pools, authenticator, collector)
+	srv, err := server.NewSecureWithMetrics(
+		cfg.Server, log, collector, static,
+		profileRoutes, systemRoutes,
+		identityRoutes, healthRoutes, electoralRoutes, grantsRoutes, policeRoutes, auditRoutes,
+	)
+	if err != nil {
+		return closeOnError(fmt.Errorf("initialize secure HTTP server: %w", err))
+	}
 
-	return &App{cfg: cfg, log: log, srv: srv, database: database}, nil
+	return &App{cfg: cfg, log: log, srv: srv, pools: pools}, nil
 }
 
-// Run starts the application and blocks until ctx is cancelled or the server
-// stops, performing graceful shutdown.
 func (a *App) Run(ctx context.Context) error {
 	a.log.Info("starting application", "name", a.cfg.AppName, "env", a.cfg.AppEnv)
 	runErr := a.srv.Run(ctx)
-	if closeErr := db.Close(a.database); closeErr != nil {
-		return errors.Join(runErr, fmt.Errorf("close database: %w", closeErr))
+	if closeErr := a.pools.Close(); closeErr != nil {
+		return errors.Join(runErr, fmt.Errorf("close database pools: %w", closeErr))
 	}
 	return runErr
+}
+
+type profileRoutes struct {
+	authenticator *auth.OIDCAuthenticator
+}
+
+func (r profileRoutes) Register(routes *router.Router) {
+	auth.RegisterProfile(routes, r.authenticator)
 }

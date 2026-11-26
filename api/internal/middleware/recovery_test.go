@@ -39,7 +39,6 @@ func TestRecoveryConvertsPanicTo500(t *testing.T) {
 			Code    string `json:"code"`
 			Message string `json:"message"`
 		} `json:"error"`
-		RequestID string `json:"request_id"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode body: %v", err)
@@ -50,8 +49,11 @@ func TestRecoveryConvertsPanicTo500(t *testing.T) {
 	if body.Error.Message != httpx.MessageInternal {
 		t.Fatalf("message = %q, want the generic message", body.Error.Message)
 	}
-	if body.RequestID != "panic-test" {
-		t.Fatalf("request_id = %q, want %q", body.RequestID, "panic-test")
+	if got := rec.Header().Get(HeaderRequestID); got != "panic-test" {
+		t.Fatalf("request ID header = %q, want %q", got, "panic-test")
+	}
+	if got := rec.Body.String(); got != "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"An unexpected error occurred\"}}\n" {
+		t.Fatalf("error body = %q, want the documented error shape", got)
 	}
 	if strings.Contains(rec.Body.String(), "secret") {
 		t.Fatal("panic details leaked into the response body")

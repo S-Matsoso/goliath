@@ -24,6 +24,14 @@ var envKeys = []string{
 	EnvDBPassword,
 	EnvDBName,
 	EnvDBCharset,
+	EnvDBDSNIdentity,
+	EnvDBDSNHealth,
+	EnvDBDSNElectoral,
+	EnvDBDSNGrants,
+	EnvDBDSNPolice,
+	EnvDBDSNAudit,
+	EnvDBDSNAuthz,
+	EnvDBDSNMigrate,
 	EnvNodeID,
 	EnvBootstrapAdminUsername,
 	EnvBootstrapAdminPassword,
@@ -32,6 +40,23 @@ var envKeys = []string{
 	EnvVaultTransitMount,
 	EnvVaultNIDEncryptionKey,
 	EnvVaultNIDHMACKey,
+	EnvOIDCIssuer,
+	EnvOIDCAudience,
+	EnvOIDCJWKSURL,
+	EnvTLSCert,
+	EnvTLSKey,
+	EnvTLSClientCA,
+	EnvDevHeaderAuth,
+}
+
+var testDSNs = map[string]string{
+	EnvDBDSNIdentity:  "identity:secret@tcp(127.0.0.1:3306)/register?tls=true",
+	EnvDBDSNHealth:    "health:secret@tcp(127.0.0.1:3306)/register?tls=true",
+	EnvDBDSNElectoral: "electoral:secret@tcp(127.0.0.1:3306)/register?tls=true",
+	EnvDBDSNGrants:    "grants:secret@tcp(127.0.0.1:3306)/register?tls=true",
+	EnvDBDSNPolice:    "police:secret@tcp(127.0.0.1:3306)/register?tls=true",
+	EnvDBDSNAudit:     "audit:secret@tcp(127.0.0.1:3306)/register?tls=true",
+	EnvDBDSNAuthz:     "authz:secret@tcp(127.0.0.1:3306)/register?tls=true",
 }
 
 func clearEnv(t *testing.T) {
@@ -51,6 +76,9 @@ func clearEnv(t *testing.T) {
 	t.Setenv(EnvVaultToken, "test-token")
 	t.Setenv(EnvVaultNIDEncryptionKey, "nid-encryption")
 	t.Setenv(EnvVaultNIDHMACKey, "nid-hmac")
+	for key, value := range testDSNs {
+		t.Setenv(key, value)
+	}
 }
 
 func unsetEnvForTest(t *testing.T, key string) {
@@ -87,13 +115,25 @@ func TestLoadReadsEnvFileAndPreservesProcessOverrides(t *testing.T) {
 		"DB_USER=file-user\n" +
 		"DB_PASSWORD=file-password\n" +
 		"DB_NAME=file-register\n" +
+		"DB_DSN_IDENTITY=identity:secret@tcp(127.0.0.1:3306)/register?tls=true\n" +
+		"DB_DSN_HEALTH=health:secret@tcp(127.0.0.1:3306)/register?tls=true\n" +
+		"DB_DSN_ELECTORAL=electoral:secret@tcp(127.0.0.1:3306)/register?tls=true\n" +
+		"DB_DSN_GRANTS=grants:secret@tcp(127.0.0.1:3306)/register?tls=true\n" +
+		"DB_DSN_POLICE=police:secret@tcp(127.0.0.1:3306)/register?tls=true\n" +
+		"DB_DSN_AUDIT=audit:secret@tcp(127.0.0.1:3306)/register?tls=true\n" +
+		"DB_DSN_AUTHZ=authz:secret@tcp(127.0.0.1:3306)/register?tls=true\n" +
 		"NODE_ID=test-node\n" +
 		"BOOTSTRAP_ADMIN_USERNAME=bootstrap-user\n" +
 		"BOOTSTRAP_ADMIN_PASSWORD=\" leading and trailing \"\n" +
 		"VAULT_ADDR=https://vault.example.test\n" +
 		"VAULT_TOKEN=test-token\n" +
 		"VAULT_NID_ENCRYPTION_KEY=nid-encryption\n" +
-		"VAULT_NID_HMAC_KEY=nid-hmac\n"
+		"VAULT_NID_HMAC_KEY=nid-hmac\n" +
+		"OIDC_ISSUER=https://idp.example.test\n" +
+		"OIDC_AUDIENCE=register-api\n" +
+		"TLS_CERT=test.crt\n" +
+		"TLS_KEY=test.key\n" +
+		"TLS_CLIENT_CA=test-ca.crt\n"
 	if err := os.WriteFile(envFile, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +194,16 @@ func validConfig() Config {
 			Name:    "test-register",
 			Charset: DefaultDBCharset,
 		},
-		NodeID: "test-node",
+		DepartmentDSNs: map[string]string{
+			"identity":  testDSNs[EnvDBDSNIdentity],
+			"health":    testDSNs[EnvDBDSNHealth],
+			"electoral": testDSNs[EnvDBDSNElectoral],
+			"grants":    testDSNs[EnvDBDSNGrants],
+			"police":    testDSNs[EnvDBDSNPolice],
+		},
+		AuditDSN: testDSNs[EnvDBDSNAudit],
+		AuthzDSN: testDSNs[EnvDBDSNAuthz],
+		NodeID:   "test-node",
 		Vault: Vault{
 			Address:          "https://vault.example.test",
 			Token:            "test-token",
@@ -208,6 +257,11 @@ func TestLoadOverrides(t *testing.T) {
 	t.Setenv(EnvVaultTransitMount, "custom-transit")
 	t.Setenv(EnvVaultNIDEncryptionKey, "national-id-encryption")
 	t.Setenv(EnvVaultNIDHMACKey, "national-id-hmac")
+	t.Setenv(EnvOIDCIssuer, "https://idp.internal")
+	t.Setenv(EnvOIDCAudience, "population-api")
+	t.Setenv(EnvTLSCert, "server.crt")
+	t.Setenv(EnvTLSKey, "server.key")
+	t.Setenv(EnvTLSClientCA, "client-ca.crt")
 
 	cfg, err := Load()
 	if err != nil {
@@ -227,6 +281,9 @@ func TestLoadOverrides(t *testing.T) {
 		WriteTimeout:    4 * time.Second,
 		IdleTimeout:     5 * time.Second,
 		ShutdownTimeout: 6 * time.Second,
+		TLSCert:         "server.crt",
+		TLSKey:          "server.key",
+		TLSClientCA:     "client-ca.crt",
 	}
 	if cfg.Server != want {
 		t.Fatalf("Server = %+v, want %+v", cfg.Server, want)
@@ -269,8 +326,9 @@ func TestLoadRejectsMalformedValues(t *testing.T) {
 		{name: "zero port", key: EnvServerPort, value: "0"},
 		{name: "malformed database port", key: EnvDBPort, value: "mysql"},
 		{name: "zero database port", key: EnvDBPort, value: "0"},
-		{name: "missing database user", key: EnvDBUser, value: ""},
-		{name: "missing database name", key: EnvDBName, value: ""},
+		{name: "missing department DSN", key: EnvDBDSNIdentity, value: ""},
+		{name: "missing audit DSN", key: EnvDBDSNAudit, value: ""},
+		{name: "malformed development-auth toggle", key: EnvDevHeaderAuth, value: "sometimes"},
 	}
 
 	for _, tt := range tests {
@@ -301,11 +359,7 @@ func TestValidate(t *testing.T) {
 		{name: "negative write timeout", mutate: func(c *Config) { c.Server.WriteTimeout = -time.Second }, wantErr: true},
 		{name: "zero idle timeout", mutate: func(c *Config) { c.Server.IdleTimeout = 0 }, wantErr: true},
 		{name: "zero shutdown timeout", mutate: func(c *Config) { c.Server.ShutdownTimeout = 0 }, wantErr: true},
-		{name: "empty database host", mutate: func(c *Config) { c.Database.Host = "" }, wantErr: true},
 		{name: "invalid database port", mutate: func(c *Config) { c.Database.Port = 65536 }, wantErr: true},
-		{name: "empty database user", mutate: func(c *Config) { c.Database.User = "" }, wantErr: true},
-		{name: "empty database name", mutate: func(c *Config) { c.Database.Name = "" }, wantErr: true},
-		{name: "empty database charset", mutate: func(c *Config) { c.Database.Charset = "" }, wantErr: true},
 		{name: "empty node id", mutate: func(c *Config) { c.NodeID = "" }, wantErr: true},
 		{name: "node id too long", mutate: func(c *Config) { c.NodeID = "node-id-that-is-too-long-for-the-column" }, wantErr: true},
 		{name: "bootstrap username too long", mutate: func(c *Config) { c.BootstrapAdmin.Username = string(make([]byte, 81)) }, wantErr: true},
@@ -314,6 +368,11 @@ func TestValidate(t *testing.T) {
 		{name: "empty Vault transit mount", mutate: func(c *Config) { c.Vault.TransitMount = "" }, wantErr: true},
 		{name: "empty Vault encryption key", mutate: func(c *Config) { c.Vault.NIDEncryptionKey = "" }, wantErr: true},
 		{name: "empty Vault HMAC key", mutate: func(c *Config) { c.Vault.NIDHMACKey = "" }, wantErr: true},
+		{name: "missing identity pool", mutate: func(c *Config) { delete(c.DepartmentDSNs, "identity") }, wantErr: true},
+		{name: "missing audit pool", mutate: func(c *Config) { c.AuditDSN = "" }, wantErr: true},
+		{name: "missing authz pool", mutate: func(c *Config) { c.AuthzDSN = "" }, wantErr: true},
+		{name: "production without OIDC", mutate: func(c *Config) { c.AppEnv = "production" }, wantErr: true},
+		{name: "dev header outside development", mutate: func(c *Config) { c.AppEnv = "production"; c.DevHeaderAuth = true }, wantErr: true},
 	}
 
 	for _, tt := range tests {

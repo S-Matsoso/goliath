@@ -40,7 +40,6 @@ func TestError(t *testing.T) {
 			Code    string `json:"code"`
 			Message string `json:"message"`
 		} `json:"error"`
-		RequestID string `json:"request_id"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode body: %v", err)
@@ -51,8 +50,8 @@ func TestError(t *testing.T) {
 	if body.Error.Message != "Resource not found" {
 		t.Fatalf("message = %q", body.Error.Message)
 	}
-	if body.RequestID != "request-123" {
-		t.Fatalf("request_id = %q, want %q", body.RequestID, "request-123")
+	if got := rec.Body.String(); got != "{\"error\":{\"code\":\"NOT_FOUND\",\"message\":\"Resource not found\"}}\n" {
+		t.Fatalf("error body = %q, want the documented error shape", got)
 	}
 }
 

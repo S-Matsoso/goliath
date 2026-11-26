@@ -72,6 +72,8 @@ type Person struct {
 	CitizenshipStatus   CitizenshipStatus `gorm:"column:citizenship_status;type:enum('CITIZEN','PERMANENT_RESIDENT','FOREIGN','STATELESS');not null"`
 	MaritalStatus       MaritalStatus     `gorm:"column:marital_status;type:enum('SINGLE','MARRIED','DIVORCED','WIDOWED');not null;default:SINGLE"`
 	DeceasedAt          *time.Time        `gorm:"column:deceased_at;type:date"`
+	IDBlockedAt         *time.Time        `gorm:"column:id_blocked_at;type:datetime(3)"`
+	IDBlockReason       *string           `gorm:"column:id_block_reason;type:varchar(255)"`
 	CreatedAt           time.Time         `gorm:"column:created_at;type:datetime(3);not null;default:CURRENT_TIMESTAMP(3)"`
 	UpdatedAt           time.Time         `gorm:"column:updated_at;type:datetime(3);not null;default:CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3);autoUpdateTime"`
 }

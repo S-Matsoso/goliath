@@ -22,8 +22,7 @@ const (
 const MessageInternal = "An unexpected error occurred"
 
 type errorPayload struct {
-	Error     errorDetail `json:"error"`
-	RequestID string      `json:"request_id"`
+	Error errorDetail `json:"error"`
 }
 
 type errorDetail struct {
@@ -57,8 +56,7 @@ func JSON(w http.ResponseWriter, status int, v any) {
 // request context, if any.
 func Error(w http.ResponseWriter, r *http.Request, status int, code, message string) {
 	JSON(w, status, errorPayload{
-		Error:     errorDetail{Code: code, Message: message},
-		RequestID: RequestID(r.Context()),
+		Error: errorDetail{Code: code, Message: message},
 	})
 }
 

@@ -267,7 +267,7 @@ func (a *Authenticator) Require(department, minimumRole string) gin.HandlerFunc 
 			c.Abort()
 			return
 		}
-		if roleRank(principal.Role) < roleRank(minimumRole) ||
+		if !roleAllows(principal.Role, minimumRole) ||
 			(!isAdmin(principal.Role) && principal.Department != department) {
 			a.reject(c, http.StatusForbidden, "FORBIDDEN", "Access denied", &principal)
 			return
@@ -417,18 +417,19 @@ func newToken() (string, []byte, error) {
 	return token, hash[:], nil
 }
 
-func roleRank(role string) int {
-	switch strings.ToLower(role) {
+func roleAllows(role, minimumRole string) bool {
+	role = strings.ToLower(role)
+	switch strings.ToLower(minimumRole) {
 	case "clerk":
-		return 1
+		return role == "clerk" || role == "supervisor" || role == "admin"
 	case "supervisor":
-		return 2
+		return role == "supervisor" || role == "admin"
 	case "auditor":
-		return 3
+		return role == "auditor" || role == "admin"
 	case "admin":
-		return 4
+		return role == "admin"
 	default:
-		return 0
+		return false
 	}
 }
 

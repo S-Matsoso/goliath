@@ -3,6 +3,7 @@
 package router
 
 import (
+	"fmt"
 	"net/http"
 	"sort"
 
@@ -11,9 +12,12 @@ import (
 
 // Route describes one mounted endpoint.
 type Route struct {
-	Method  string `json:"method"`
-	Path    string `json:"path"`
-	Summary string `json:"summary"`
+	Method     string `json:"method"`
+	Path       string `json:"path"`
+	Summary    string `json:"summary"`
+	Protected  bool   `json:"-"`
+	Department string `json:"-"`
+	MinRole    string `json:"-"`
 }
 
 // Router wraps a Gin engine and keeps a record of every route registered
@@ -33,12 +37,28 @@ func New(engine *gin.Engine) *Router {
 // GET routes also answer HEAD, matching standard HTTP behaviour, without
 // appearing twice in the catalog.
 func (r *Router) Handle(method, path, summary string, handlers ...gin.HandlerFunc) {
+	r.handle(method, path, summary, "", "", handlers...)
+}
+
+func (r *Router) HandleProtected(method, path, summary, department, minimumRole string, middleware gin.HandlerFunc, handler gin.HandlerFunc) {
+	r.handle(method, path, summary, department, minimumRole, middleware, handler)
+}
+
+func (r *Router) handle(method, path, summary, department, minimumRole string, handlers ...gin.HandlerFunc) {
 	r.engine.Handle(method, path, handlers...)
 	if method == http.MethodGet {
 		r.engine.Handle(http.MethodHead, path, handlers...)
 	}
 
-	r.routes = append(r.routes, Route{Method: method, Path: path, Summary: summary})
+	protected := department != "" && minimumRole != "" && len(handlers) >= 2 && handlers[0] != nil
+	r.routes = append(r.routes, Route{
+		Method:     method,
+		Path:       path,
+		Summary:    summary,
+		Protected:  protected,
+		Department: department,
+		MinRole:    minimumRole,
+	})
 }
 
 // Routes returns a copy of the recorded routes, sorted by path then method, so
@@ -54,4 +74,16 @@ func (r *Router) Routes() []Route {
 		return routes[i].Method < routes[j].Method
 	})
 	return routes
+}
+
+func (r *Router) ValidateAuthCoverage() error {
+	for _, route := range r.routes {
+		if route.Path == "/healthz" || route.Path == "/api/endpoints" {
+			continue
+		}
+		if !route.Protected {
+			return fmt.Errorf("route %s %s lacks an authentication declaration", route.Method, route.Path)
+		}
+	}
+	return nil
 }

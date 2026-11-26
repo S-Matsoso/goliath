@@ -28,18 +28,17 @@ func newTestHandler() http.Handler {
 	return NewHandler(log, stubModule{})
 }
 
-func decodeError(t *testing.T, body []byte) (code, requestID string) {
+func decodeError(t *testing.T, body []byte) string {
 	t.Helper()
 	var payload struct {
 		Error struct {
 			Code string `json:"code"`
 		} `json:"error"`
-		RequestID string `json:"request_id"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
 		t.Fatalf("decode body %q: %v", body, err)
 	}
-	return payload.Error.Code, payload.RequestID
+	return payload.Error.Code
 }
 
 func TestUnknownRouteReturnsJSON404(t *testing.T) {
@@ -49,12 +48,9 @@ func TestUnknownRouteReturnsJSON404(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
 	}
-	code, requestID := decodeError(t, rec.Body.Bytes())
+	code := decodeError(t, rec.Body.Bytes())
 	if code != "NOT_FOUND" {
 		t.Fatalf("code = %q, want NOT_FOUND", code)
-	}
-	if requestID == "" {
-		t.Fatal("error response is missing request_id")
 	}
 	if rec.Header().Get("X-Request-ID") == "" {
 		t.Fatal("error response is missing the X-Request-ID header")
@@ -72,7 +68,7 @@ func TestMethodMismatchReturnsJSON405(t *testing.T) {
 	if !strings.Contains(allow, http.MethodGet) {
 		t.Fatalf("Allow = %q, want it to include GET", allow)
 	}
-	code, _ := decodeError(t, rec.Body.Bytes())
+	code := decodeError(t, rec.Body.Bytes())
 	if code != "METHOD_NOT_ALLOWED" {
 		t.Fatalf("code = %q, want METHOD_NOT_ALLOWED", code)
 	}
