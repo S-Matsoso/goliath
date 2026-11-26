@@ -23,6 +23,7 @@ go.work.sum
 vendor/
 bin/
 dist/
+node_modules/
 
 # Editor and OS noise
 .DS_Store

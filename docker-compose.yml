@@ -1,15 +1,17 @@
 services:
-  keycloak:
-    image: quay.io/keycloak/keycloak:26.8.2
-    container_name: goliath-keycloak
-    command: start-dev
+  mysql:
+    image: mysql:8.4
+    container_name: goliath-mysql
+    restart: unless-stopped
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${DB_PORT:-3306}:3306"
     environment:
-      KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      MYSQL_DATABASE: ${DB_NAME:?Set DB_NAME in api/.env}
+      MYSQL_USER: ${DB_USER:?Set DB_USER in api/.env}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in api/.env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in api/.env}
     volumes:
-      - keycloak_data:/opt/keycloak/data
+      - mysql_data:/var/lib/mysql
 
 volumes:
-  keycloak_data:
+  mysql_data:
